@@ -1,0 +1,21 @@
+{
+  "name": "community-wallet",
+  "version": "1.0.0",
+  "description": "Community Points Wallet — Full-Stack Monorepo",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend && npm install --prefix tests",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "migrate": "npm run migrate --prefix backend",
+    "seed": "npm run seed --prefix backend",
+    "test": "npm test --prefix tests",
+    "test:unit": "npm run test:unit --prefix tests",
+    "test:integration": "npm run test:integration --prefix tests",
+    "test:concurrency": "npm run test:concurrency --prefix tests",
+    "build:frontend": "npm run build --prefix frontend"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

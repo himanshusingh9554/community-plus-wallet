@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MemberType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum WithdrawalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum LedgerEntryType {
+  TRANSFER_OUT
+  TRANSFER_IN
+  GROUP_WITHDRAWAL
+  ADMIN_CREDIT
+}
+
+enum NotifyStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id         String     @id @default(uuid())
+  mobile     String     @unique
+  fullName   String
+  dob        DateTime
+  memberType MemberType @default(INDIVIDUAL)
+  gstin      String?
+  pincode    String
+  isAdmin    Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  wallet          Wallet?
+  otpRecord       OtpRecord?
+  sentTransfers   Transfer[]    @relation("SenderTransfers")
+  receivedTransfers Transfer[]  @relation("ReceiverTransfers")
+  groupMemberships GroupMember[]
+  ledgerEntries   LedgerEntry[]
+
+  @@map("users")
+}
+
+model OtpRecord {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  otp          String
+  attempts     Int      @default(0)
+  lockedUntil  DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("otp_records")
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(20, 2)
+  pending   Decimal  @default(0) @db.Decimal(20, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model Transfer {
+  id             String   @id @default(uuid())
+  senderId       String
+  receiverId     String
+  amount         Decimal  @db.Decimal(20, 2)
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  sender   User @relation("SenderTransfers", fields: [senderId], references: [id])
+  receiver User @relation("ReceiverTransfers", fields: [receiverId], references: [id])
+
+  @@unique([senderId, idempotencyKey])
+  @@map("transfers")
+}
+
+model Group {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     GroupMember[]
+  wallet      GroupWallet?
+  withdrawals GroupWithdrawal[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  isLeader  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@map("group_members")
+}
+
+model GroupWallet {
+  id        String   @id @default(uuid())
+  groupId   String   @unique
+  balance   Decimal  @default(0) @db.Decimal(20, 2)
+  pending   Decimal  @default(0) @db.Decimal(20, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_wallets")
+}
+
+model GroupWithdrawal {
+  id          String           @id @default(uuid())
+  groupId     String
+  requestedBy String
+  amount      Decimal          @db.Decimal(20, 2)
+  status      WithdrawalStatus @default(PENDING_APPROVAL)
+  note        String?
+  expiresAt   DateTime
+  resolvedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_withdrawals")
+}
+
+model LedgerEntry {
+  id           String          @id @default(uuid())
+  userId       String
+  entryType    LedgerEntryType
+  amount       Decimal         @db.Decimal(20, 2)
+  balanceAfter Decimal         @db.Decimal(20, 2)
+  referenceId  String?
+  notifyStatus NotifyStatus    @default(PENDING)
+  metadata     Json?
+  createdAt    DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("ledger_entries")
+}
+
+model AdminCreditReference {
+  id          String   @id @default(uuid())
+  reference   String   @unique
+  mobile      String
+  amount      Decimal  @db.Decimal(20, 2)
+  processedAt DateTime @default(now())
+
+  @@map("admin_credit_references")
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(uuid())
+  userId         String
+  idempotencyKey String
+  responseBody   Json
+  statusCode     Int
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, idempotencyKey])
+  @@map("idempotency_records")
+}

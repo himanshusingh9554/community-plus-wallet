@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: community_wallet_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/community_wallet_test
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/community_wallet_test
+
+      - name: Install test dependencies
+        run: npm ci
+        working-directory: tests
+
+      - name: Run unit tests
+        run: npm run test:unit
+        working-directory: tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/community_wallet_test
+          JWT_SECRET: test-ci-secret
+          OTP_FIXED: '123456'
+
+      - name: Run integration tests
+        run: npm run test:integration
+        working-directory: tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/community_wallet_test
+          JWT_SECRET: test-ci-secret
+          OTP_FIXED: '123456'
+
+      - name: Run concurrency tests
+        run: npm run test:concurrency
+        working-directory: tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/community_wallet_test
+          JWT_SECRET: test-ci-secret
+          OTP_FIXED: '123456'
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://placeholder-backend.railway.app
