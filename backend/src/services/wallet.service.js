@@ -3,6 +3,8 @@ const { validateAmount, formatDecimal } = require('../utils/amount');
 const { fireAndForgetNotification } = require('../utils/notify');
 const logger = require('../utils/logger');
 
+const TX_OPTIONS = { maxWait: 30000, timeout: 60000 };
+
 async function getWallet(userId) {
   const wallet = await prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) throw Object.assign(new Error('Wallet not found'), { status: 404 });
@@ -51,51 +53,51 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
         throw Object.assign(new Error('Insufficient balance'), { status: 400 });
       }
 
-      await tx.wallet.update({
-        where: { userId: senderId },
-        data: { balance: { decrement: amountFloat } },
-      });
+      const [updatedSender, updatedReceiver] = await Promise.all([
+        tx.wallet.update({
+          where: { userId: senderId },
+          data: { balance: { decrement: amountFloat } },
+        }),
+        tx.wallet.update({
+          where: { userId: receiver.id },
+          data: { balance: { increment: amountFloat } },
+        }),
+      ]);
 
-      await tx.wallet.update({
-        where: { userId: receiver.id },
-        data: { balance: { increment: amountFloat } },
-      });
+      const newSenderBalance = parseFloat(updatedSender.balance);
+      const newReceiverBalance = parseFloat(updatedReceiver.balance);
 
-      await tx.transfer.create({
-        data: {
-          senderId,
-          receiverId: receiver.id,
-          amount: amountFloat,
-          idempotencyKey: idempotencyKey || null,
-        },
-      });
-
-      const newSenderBalance = balance - amountFloat;
-      const newReceiverWallet = await tx.wallet.findUnique({ where: { userId: receiver.id } });
-      const newReceiverBalance = parseFloat(newReceiverWallet.balance);
-
-      const senderLedger = await tx.ledgerEntry.create({
-        data: {
-          userId: senderId,
-          entryType: 'TRANSFER_OUT',
-          amount: -amountFloat,
-          balanceAfter: newSenderBalance,
-          metadata: { receiverMobile },
-        },
-      });
-
-      const receiverLedger = await tx.ledgerEntry.create({
-        data: {
-          userId: receiver.id,
-          entryType: 'TRANSFER_IN',
-          amount: amountFloat,
-          balanceAfter: newReceiverBalance,
-          metadata: { senderMobile: null },
-        },
-      });
+      const [transferRecord, senderLedger, receiverLedger] = await Promise.all([
+        tx.transfer.create({
+          data: {
+            senderId,
+            receiverId: receiver.id,
+            amount: amountFloat,
+            idempotencyKey: idempotencyKey || null,
+          },
+        }),
+        tx.ledgerEntry.create({
+          data: {
+            userId: senderId,
+            entryType: 'TRANSFER_OUT',
+            amount: -amountFloat,
+            balanceAfter: newSenderBalance,
+            metadata: { receiverMobile },
+          },
+        }),
+        tx.ledgerEntry.create({
+          data: {
+            userId: receiver.id,
+            entryType: 'TRANSFER_IN',
+            amount: amountFloat,
+            balanceAfter: newReceiverBalance,
+            metadata: { senderMobile: null },
+          },
+        }),
+      ]);
 
       return { senderLedger, receiverLedger, receiver, amountFloat, newSenderBalance, newReceiverBalance };
-    });
+    }, TX_OPTIONS);
   } catch (err) {
     if (err.status) return { success: false, error: err.message, status: err.status };
     if (err.code === 'P2002') {

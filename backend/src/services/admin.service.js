@@ -5,6 +5,8 @@ const { validateAmount, formatDecimal } = require('../utils/amount');
 const { fireAndForgetNotification } = require('../utils/notify');
 const logger = require('../utils/logger');
 
+const TX_OPTIONS = { maxWait: 30000, timeout: 60000 };
+
 async function processBulkCredits(fileBuffer) {
   const rows = await parseCsv(fileBuffer);
 
@@ -56,14 +58,13 @@ async function processBulkCredits(fileBuffer) {
 
       let ledgerEntry;
       await prisma.$transaction(async (tx) => {
-        await tx.adminCreditReference.create({ data: { reference: ref, mobile: mob, amount: amountFloat } });
-
-        await tx.wallet.update({
-          where: { userId: user.id },
-          data: { balance: { increment: amountFloat } },
-        });
-
-        const updatedWallet = await tx.wallet.findUnique({ where: { userId: user.id } });
+        const [_, updatedWallet] = await Promise.all([
+          tx.adminCreditReference.create({ data: { reference: ref, mobile: mob, amount: amountFloat } }),
+          tx.wallet.update({
+            where: { userId: user.id },
+            data: { balance: { increment: amountFloat } },
+          }),
+        ]);
 
         ledgerEntry = await tx.ledgerEntry.create({
           data: {
@@ -75,7 +76,7 @@ async function processBulkCredits(fileBuffer) {
             metadata: { reference: ref },
           },
         });
-      });
+      }, TX_OPTIONS);
 
       fireAndForgetNotification(
         mob,

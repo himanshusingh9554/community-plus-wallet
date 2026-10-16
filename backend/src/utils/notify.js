@@ -4,7 +4,7 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 
-const NOTIFY_TIMEOUT_MS = 2000;
+const NOTIFY_TIMEOUT_MS = 1000;
 
 function httpPost(urlStr, body) {
   return new Promise((resolve, reject) => {
@@ -12,6 +12,9 @@ function httpPost(urlStr, body) {
     const isHttps = parsed.protocol === 'https:';
     const client = isHttps ? https : http;
     const data = JSON.stringify(body);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), NOTIFY_TIMEOUT_MS);
 
     const req = client.request({
       hostname: parsed.hostname,
@@ -22,17 +25,18 @@ function httpPost(urlStr, body) {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(data),
       },
-      timeout: NOTIFY_TIMEOUT_MS,
+      signal: controller.signal,
     }, (res) => {
+      clearTimeout(timer);
       res.resume();
       resolve(res.statusCode);
     });
 
-    req.on('timeout', () => {
-      req.destroy(new Error('Request timed out'));
+    req.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
     });
 
-    req.on('error', reject);
     req.write(data);
     req.end();
   });
@@ -50,7 +54,7 @@ async function sendNotification(mobile, message, ledgerEntryId) {
       await prisma.ledgerEntry.update({
         where: { id: ledgerEntryId },
         data: { notifyStatus },
-      });
+      }).catch(() => {});
     }
   } catch (err) {
     logger.warn({ err: err.message, mobile }, 'Notification delivery failed');

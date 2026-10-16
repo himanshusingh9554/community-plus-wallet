@@ -3,6 +3,8 @@ const { validateAmount, formatDecimal } = require('../utils/amount');
 const { fireAndForgetNotification } = require('../utils/notify');
 const logger = require('../utils/logger');
 
+const TX_OPTIONS = { maxWait: 30000, timeout: 60000 };
+
 function getPendingTtlMs() {
   const seconds = parseInt(process.env.PENDING_TTL_SECONDS || '86400', 10);
   return seconds * 1000;
@@ -55,15 +57,18 @@ async function createWithdrawal(groupId, userId, amount, note) {
       throw Object.assign(new Error('Insufficient group balance'), { status: 400 });
     }
 
-    await tx.groupWallet.update({
-      where: { groupId },
-      data: { pending: { increment: amountFloat } },
-    });
+    const [updatedGw, newWithdrawal] = await Promise.all([
+      tx.groupWallet.update({
+        where: { groupId },
+        data: { pending: { increment: amountFloat } },
+      }),
+      tx.groupWithdrawal.create({
+        data: { groupId, requestedBy: userId, amount: amountFloat, note, expiresAt },
+      }),
+    ]);
 
-    return tx.groupWithdrawal.create({
-      data: { groupId, requestedBy: userId, amount: amountFloat, note, expiresAt },
-    });
-  });
+    return newWithdrawal;
+  }, TX_OPTIONS);
 
   return withdrawal;
 }
@@ -92,15 +97,17 @@ async function resolveWithdrawal(groupId, withdrawalId, userId, action) {
     }
 
     const now = new Date();
-    if (wd.expiresAt < now) {
-      await tx.groupWithdrawal.update({
-        where: { id: withdrawalId },
-        data: { status: 'EXPIRED', resolvedAt: now },
-      });
-      await tx.groupWallet.update({
-        where: { groupId },
-        data: { pending: { decrement: parseFloat(wd.amount) } },
-      });
+    if (new Date(wd.expiresAt) < now) {
+      await Promise.all([
+        tx.groupWithdrawal.update({
+          where: { id: withdrawalId },
+          data: { status: 'EXPIRED', resolvedAt: now },
+        }),
+        tx.groupWallet.update({
+          where: { groupId },
+          data: { pending: { decrement: parseFloat(wd.amount) } },
+        }),
+      ]);
       throw Object.assign(new Error('Withdrawal has expired'), { status: 410 });
     }
 
@@ -116,7 +123,7 @@ async function resolveWithdrawal(groupId, withdrawalId, userId, action) {
         throw Object.assign(new Error('Insufficient funds at approval time'), { status: 400 });
       }
 
-      await tx.groupWallet.update({
+      const updatedGw = await tx.groupWallet.update({
         where: { groupId },
         data: {
           balance: { decrement: amountFloat },
@@ -124,35 +131,38 @@ async function resolveWithdrawal(groupId, withdrawalId, userId, action) {
         },
       });
 
-      await tx.groupWithdrawal.update({
-        where: { id: withdrawalId },
-        data: { status: 'APPROVED', resolvedAt: now },
-      });
+      const [updatedWd] = await Promise.all([
+        tx.groupWithdrawal.update({
+          where: { id: withdrawalId },
+          data: { status: 'APPROVED', resolvedAt: now },
+        }),
+        tx.ledgerEntry.create({
+          data: {
+            userId,
+            entryType: 'GROUP_WITHDRAWAL',
+            amount: -amountFloat,
+            balanceAfter: parseFloat(updatedGw.balance),
+            referenceId: withdrawalId,
+          },
+        }),
+      ]);
 
-      const updatedGw = await tx.groupWallet.findUnique({ where: { groupId } });
-      await tx.ledgerEntry.create({
-        data: {
-          userId,
-          entryType: 'GROUP_WITHDRAWAL',
-          amount: -amountFloat,
-          balanceAfter: parseFloat(updatedGw.balance),
-          referenceId: withdrawalId,
-        },
-      });
+      return updatedWd;
     } else {
-      await tx.groupWallet.update({
-        where: { groupId },
-        data: { pending: { decrement: amountFloat } },
-      });
+      const [_, updatedWd] = await Promise.all([
+        tx.groupWallet.update({
+          where: { groupId },
+          data: { pending: { decrement: amountFloat } },
+        }),
+        tx.groupWithdrawal.update({
+          where: { id: withdrawalId },
+          data: { status: 'REJECTED', resolvedAt: now },
+        }),
+      ]);
 
-      await tx.groupWithdrawal.update({
-        where: { id: withdrawalId },
-        data: { status: 'REJECTED', resolvedAt: now },
-      });
+      return updatedWd;
     }
-
-    return tx.groupWithdrawal.findUnique({ where: { id: withdrawalId } });
-  });
+  }, TX_OPTIONS);
 
   return result;
 }
