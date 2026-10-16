@@ -56,6 +56,25 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Community Points Wallet API is running smoothly 🚀',
+    version: '1.0.0',
+    documentation: 'https://github.com/himanshusingh9554/community-plus-wallet',
+    frontend: process.env.FRONTEND_URL || 'https://community-plus-wallet.vercel.app',
+    endpoints: {
+      health: '/health',
+      auth: '/auth/otp/request, /auth/otp/verify, /users/register',
+      wallet: '/wallet, /wallet/transfers, /wallet/transactions, /wallet/stream',
+      groups: '/groups, /groups/:gid/wallet, /groups/:gid/withdrawals',
+      admin: '/admin/credits/bulk',
+      me: '/me, /me/roles',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
