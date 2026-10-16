@@ -4,10 +4,15 @@ A production-grade, full-stack **Community Points Wallet** system built with Nod
 
 ---
 
-## 🔗 Repository & Contact
+## 🔗 Live Deployments & Repository
 
+- **Frontend (Live Demo):** [https://community-plus-wallet.vercel.app/](https://community-plus-wallet.vercel.app/)
+- **Backend API (Live):** [https://community-plus-wallet.onrender.com](https://community-plus-wallet.onrender.com)
+- **API Health Check:** [https://community-plus-wallet.onrender.com/health](https://community-plus-wallet.onrender.com/health)
 - **GitHub Repository:** [https://github.com/himanshusingh9554/community-plus-wallet.git](https://github.com/himanshusingh9554/community-plus-wallet.git)
 - **Author Email:** [himanshusingh9554@gmail.com](mailto:himanshusingh9554@gmail.com)
+
+> **Note on Backend Hosting:** The backend API is hosted on Render free tier; it may take ~50 seconds to spin up from sleep on the very first request.
 
 ---
 
