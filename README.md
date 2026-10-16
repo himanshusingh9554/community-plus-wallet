@@ -238,15 +238,10 @@ Time:        2.851 s
 
 ---
 
-## 🚢 Production Build & Deployment
+## 🚢 Production Build
 
-### Frontend Production Build
 ```bash
+# Build production bundle
 npm run build:frontend
 ```
 Generates optimized static assets in `frontend/dist/`.
-
-### Deployment Recommendations
-- **Backend:** Railway, Render, or AWS ECS (Set `DATABASE_URL`, `JWT_SECRET`, and `NODE_ENV=production`).
-- **Frontend:** Vercel or Netlify (Configure `VITE_API_URL` to your production backend URL).
-- **Database:** Neon PostgreSQL or AWS RDS PostgreSQL.
