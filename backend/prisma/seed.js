@@ -74,6 +74,35 @@ async function main() {
     update: { balance: 250, pending: 0 },
   });
 
+  // Helper to strictly ensure SUM(ledger) == wallet.balance
+  async function ensureSeedLedgerInvariant(userId, targetBalance, refPrefix) {
+    const ledgerSumResult = await prisma.ledgerEntry.aggregate({
+      where: { userId },
+      _sum: { amount: true },
+    });
+    const currentLedgerSum = parseFloat(ledgerSumResult._sum.amount || 0);
+    const diff = parseFloat((targetBalance - currentLedgerSum).toFixed(2));
+
+    if (Math.abs(diff) > 0.001) {
+      await prisma.ledgerEntry.create({
+        data: {
+          userId,
+          entryType: diff > 0 ? 'ADMIN_CREDIT' : 'TRANSFER_OUT',
+          amount: Math.abs(diff),
+          balanceAfter: targetBalance,
+          referenceId: `${refPrefix}-INIT`,
+          notifyStatus: 'SENT',
+          metadata: { reason: 'Initial seed allocation to satisfy ledger invariant' },
+        },
+      });
+    }
+  }
+
+  // Enforce ledger invariant for the 3 demo accounts
+  await ensureSeedLedgerInvariant(admin.id, 1000, 'ADMIN-SEED');
+  await ensureSeedLedgerInvariant(member1.id, 500, 'ALICE-SEED');
+  await ensureSeedLedgerInvariant(member2.id, 250, 'BOB-SEED');
+
   // Restore wallets for any other existing database users
   const allUsers = await prisma.user.findMany({ include: { wallet: true } });
   for (const u of allUsers) {
@@ -192,12 +221,28 @@ async function main() {
     },
   });
 
-  console.log('RBAC Seed complete:', {
+  const auditUsers = [admin, member1, member2];
+  const ledgerAudit = {};
+  for (const u of auditUsers) {
+    const w = await prisma.wallet.findUnique({ where: { userId: u.id } });
+    const agg = await prisma.ledgerEntry.aggregate({
+      where: { userId: u.id },
+      _sum: { amount: true },
+    });
+    ledgerAudit[u.mobile] = {
+      walletBalance: parseFloat(w.balance),
+      ledgerSum: parseFloat(agg._sum.amount || 0),
+      invariantHolds: parseFloat(w.balance) === parseFloat(agg._sum.amount || 0),
+    };
+  }
+
+  console.log('RBAC & Ledger Invariant Seed complete:', {
     admin: { mobile: admin.mobile, role: 'ADMIN', groupALeader: true },
     member1: { mobile: member1.mobile, role: 'USER', groupAMember: true },
     member2: { mobile: member2.mobile, role: 'USER', groupBLeader: true, nonMemberGroupA: true },
     groupA: groupA.id,
     groupB: groupB.id,
+    ledgerAudit,
   });
 }
 

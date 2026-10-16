@@ -20,9 +20,30 @@ app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(compression());
+const configuredOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map((u) => u.trim().replace(/\/+$/, ''))
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const cleanOrigin = origin.replace(/\/+$/, '');
+
+    if (configuredOrigins.includes(cleanOrigin) || configuredOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    if (/^https:\/\/.*\.vercel\.app$/.test(cleanOrigin)) {
+      return callback(null, true);
+    }
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(cleanOrigin)) {
+      return callback(null, true);
+    }
+    callback(null, true);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Idempotency-Key', 'Content-Length'],
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));

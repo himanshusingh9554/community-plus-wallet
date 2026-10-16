@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { walletApi, groupApi, adminApi, userApi, authApi } from '../api/client';
+import { walletApi, groupApi, adminApi, userApi, authApi, baseURL } from '../api/client';
 import useAuthStore from '../store/authStore';
 import { useNavigate } from 'react-router-dom';
 import { useDoubleClickGuard } from '../hooks/useAsync';
@@ -180,7 +180,8 @@ function WalletDashboard() {
       if (!token) return;
 
       try {
-        const response = await fetch('/api/wallet/stream', {
+        const streamUrl = `${baseURL}/wallet/stream`;
+        const response = await fetch(streamUrl, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
