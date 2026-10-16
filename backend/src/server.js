@@ -39,11 +39,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
+app.post('/notify', (req, res) => {
+  const { mobile, message } = req.body || {};
+  logger.info({ mobile, message }, 'Notification webhook received');
+  res.status(200).json({ success: true, timestamp: new Date().toISOString() });
+});
+
 app.use('/auth', authRoutes);
 app.use('/wallet', walletRoutes);
 app.use('/groups', groupRoutes);
 app.use('/admin', adminRoutes);
 app.use('/users', userRoutes);
+app.use('/me', userRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

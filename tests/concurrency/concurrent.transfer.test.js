@@ -13,9 +13,16 @@ let receiverUser;
 let senderToken;
 
 beforeAll(async () => {
-  await prisma.ledgerEntry.deleteMany({});
-  await prisma.transfer.deleteMany({});
-  await prisma.user.deleteMany({ where: { mobile: { in: ['7000000001', '7000000002'] } } });
+  const existing = await prisma.user.findMany({ where: { mobile: { in: ['7000000001', '7000000002'] } } });
+  const ids = existing.map((u) => u.id);
+  if (ids.length > 0) {
+    await prisma.ledgerEntry.deleteMany({ where: { userId: { in: ids } } });
+    await prisma.transfer.deleteMany({
+      where: { OR: [{ senderId: { in: ids } }, { receiverId: { in: ids } }] },
+    });
+    await prisma.wallet.deleteMany({ where: { userId: { in: ids } } });
+    await prisma.user.deleteMany({ where: { id: { in: ids } } });
+  }
 
   senderUser = await prisma.user.create({
     data: {

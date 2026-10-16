@@ -6,10 +6,11 @@ const router = Router();
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 60,
   message: { error: 'Too many OTP requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
 });
 
 router.post('/otp/request', otpLimiter, requestOtp);

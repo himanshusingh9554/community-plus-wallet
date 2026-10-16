@@ -1,13 +1,22 @@
 const prisma = require('../utils/prisma');
 const { validateAmount, formatDecimal } = require('../utils/amount');
 const { fireAndForgetNotification } = require('../utils/notify');
+const eventBus = require('../utils/eventBus');
 const logger = require('../utils/logger');
 
 const TX_OPTIONS = { maxWait: 30000, timeout: 60000 };
 
 async function getWallet(userId) {
-  const wallet = await prisma.wallet.findUnique({ where: { userId } });
-  if (!wallet) throw Object.assign(new Error('Wallet not found'), { status: 404 });
+  let wallet = await prisma.wallet.findUnique({ where: { userId } });
+  if (!wallet) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw Object.assign(new Error('Wallet not found'), { status: 404 });
+    wallet = await prisma.wallet.upsert({
+      where: { userId },
+      update: {},
+      create: { userId, balance: 0, pending: 0 },
+    });
+  }
 
   const balance = parseFloat(wallet.balance);
   const pending = parseFloat(wallet.pending);
@@ -26,7 +35,11 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
     return { success: false, error: reason, status: 400 };
   }
 
-  const receiver = await prisma.user.findUnique({ where: { mobile: receiverMobile } });
+  const [sender, receiver] = await Promise.all([
+    prisma.user.findUnique({ where: { id: senderId } }),
+    prisma.user.findUnique({ where: { mobile: receiverMobile } }),
+  ]);
+  if (!sender) return { success: false, error: 'Sender not found', status: 404 };
   if (!receiver) return { success: false, error: 'Receiver not found', status: 404 };
 
   if (receiver.id === senderId) {
@@ -58,9 +71,10 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
           where: { userId: senderId },
           data: { balance: { decrement: amountFloat } },
         }),
-        tx.wallet.update({
+        tx.wallet.upsert({
           where: { userId: receiver.id },
-          data: { balance: { increment: amountFloat } },
+          create: { userId: receiver.id, balance: amountFloat, pending: 0 },
+          update: { balance: { increment: amountFloat } },
         }),
       ]);
 
@@ -82,7 +96,11 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
             entryType: 'TRANSFER_OUT',
             amount: -amountFloat,
             balanceAfter: newSenderBalance,
-            metadata: { receiverMobile },
+            metadata: {
+              receiverMobile,
+              counterpartyMobile: receiverMobile,
+              counterpartyName: receiver.fullName || '',
+            },
           },
         }),
         tx.ledgerEntry.create({
@@ -91,7 +109,11 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
             entryType: 'TRANSFER_IN',
             amount: amountFloat,
             balanceAfter: newReceiverBalance,
-            metadata: { senderMobile: null },
+            metadata: {
+              senderMobile: sender.mobile,
+              counterpartyMobile: sender.mobile,
+              counterpartyName: sender.fullName || '',
+            },
           },
         }),
       ]);
@@ -112,8 +134,6 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
     return { success: false, error: 'Transfer failed', status: 500 };
   }
 
-  const sender = await prisma.user.findUnique({ where: { id: senderId } });
-
   fireAndForgetNotification(
     sender.mobile,
     `Your wallet has been debited with ${formatDecimal(result.amountFloat)} points`,
@@ -125,6 +145,22 @@ async function transfer(senderId, receiverMobile, amount, idempotencyKey) {
     `Your wallet has been credited with ${formatDecimal(result.amountFloat)} points`,
     result.receiverLedger.id
   );
+
+  eventBus.broadcastToUser(senderId, 'balance_updated', {
+    balance: formatDecimal(result.newSenderBalance),
+    type: 'TRANSFER_OUT',
+    amount: formatDecimal(result.amountFloat),
+    counterpartyMobile: receiver.mobile,
+    message: `Transferred ₹${formatDecimal(result.amountFloat)} to ${receiver.mobile}`,
+  });
+
+  eventBus.broadcastToUser(receiver.id, 'balance_updated', {
+    balance: formatDecimal(result.newReceiverBalance),
+    type: 'TRANSFER_IN',
+    amount: formatDecimal(result.amountFloat),
+    counterpartyMobile: sender.mobile,
+    message: `Received ₹${formatDecimal(result.amountFloat)} from ${sender.mobile}!`,
+  });
 
   return { success: true, amount: formatDecimal(result.amountFloat), balance: formatDecimal(result.newSenderBalance) };
 }
@@ -142,14 +178,22 @@ async function getTransactions(userId, page = 1, limit = 10) {
   ]);
 
   return {
-    data: entries.map((e) => ({
-      id: e.id,
-      type: e.entryType,
-      amount: formatDecimal(e.amount),
-      balanceAfter: formatDecimal(e.balanceAfter),
-      createdAt: e.createdAt,
-      metadata: e.metadata,
-    })),
+    data: entries.map((e) => {
+      const meta = e.metadata || {};
+      const counterpartyMobile = meta.counterpartyMobile || meta.senderMobile || meta.receiverMobile || null;
+      return {
+        id: e.id,
+        type: e.entryType,
+        amount: formatDecimal(e.amount),
+        balanceAfter: formatDecimal(e.balanceAfter),
+        createdAt: e.createdAt,
+        metadata: e.metadata,
+        counterpartyMobile,
+        senderMobile: meta.senderMobile || null,
+        receiverMobile: meta.receiverMobile || null,
+        counterpartyName: meta.counterpartyName || null,
+      };
+    }),
     pagination: {
       total,
       page,

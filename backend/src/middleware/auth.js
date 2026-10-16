@@ -19,7 +19,8 @@ function authenticate(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.user || !req.user.isAdmin) {
+  const isAdmin = req.user && (req.user.isAdmin === true || req.user.role === 'ADMIN');
+  if (!isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();

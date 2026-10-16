@@ -1,4 +1,5 @@
 const walletService = require('../services/wallet.service');
+const eventBus = require('../utils/eventBus');
 
 async function getWallet(req, res, next) {
   try {
@@ -46,4 +47,20 @@ async function getTransactions(req, res, next) {
   }
 }
 
-module.exports = { getWallet, transfer, getTransactions };
+function streamWalletEvents(req, res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  eventBus.addClient(req.user.id, req.user.mobile, res);
+
+  res.write(`event: connected\ndata: ${JSON.stringify({ type: 'CONNECTED', message: 'Live stream connected' })}\n\n`);
+
+  req.on('close', () => {
+    eventBus.removeClient(req.user.id, req.user.mobile, res);
+  });
+}
+
+module.exports = { getWallet, transfer, getTransactions, streamWalletEvents };

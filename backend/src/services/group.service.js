@@ -195,4 +195,81 @@ async function evaluateExpiredWithdrawals(groupId) {
   }
 }
 
-module.exports = { getGroupWallet, createWithdrawal, resolveWithdrawal, evaluateExpiredWithdrawals };
+async function getMyGroups(userId) {
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId },
+    include: {
+      group: {
+        include: {
+          wallet: true,
+        },
+      },
+    },
+  });
+
+  return memberships.map((m) => {
+    const gw = m.group.wallet;
+    const balance = gw ? parseFloat(gw.balance) : 0;
+    const pending = gw ? parseFloat(gw.pending) : 0;
+    return {
+      id: m.group.id,
+      name: m.group.name,
+      isLeader: m.isLeader,
+      role: m.isLeader ? 'LEADER' : 'MEMBER',
+      wallet: {
+        balance: formatDecimal(balance),
+        pending: formatDecimal(pending),
+        available: formatDecimal(balance - pending),
+      },
+    };
+  });
+}
+
+async function getGroupWithdrawals(groupId, userId) {
+  const membership = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId } },
+  });
+  if (!membership) {
+    throw Object.assign(new Error('Not a member of this group'), { status: 403 });
+  }
+
+  await evaluateExpiredWithdrawals(groupId);
+
+  const withdrawals = await prisma.groupWithdrawal.findMany({
+    where: { groupId },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const requesterIds = [...new Set(withdrawals.map((w) => w.requestedBy))];
+  const requesters = await prisma.user.findMany({
+    where: { id: { in: requesterIds } },
+    select: { id: true, mobile: true, fullName: true },
+  });
+  const requesterMap = new Map(requesters.map((r) => [r.id, r]));
+
+  return withdrawals.map((w) => {
+    const requester = requesterMap.get(w.requestedBy) || { mobile: 'Unknown', fullName: 'Unknown' };
+    return {
+      id: w.id,
+      groupId: w.groupId,
+      requestedBy: w.requestedBy,
+      requesterMobile: requester.mobile,
+      requesterName: requester.fullName,
+      amount: formatDecimal(parseFloat(w.amount)),
+      status: w.status,
+      note: w.note,
+      expiresAt: w.expiresAt,
+      resolvedAt: w.resolvedAt,
+      createdAt: w.createdAt,
+    };
+  });
+}
+
+module.exports = {
+  getGroupWallet,
+  createWithdrawal,
+  resolveWithdrawal,
+  evaluateExpiredWithdrawals,
+  getMyGroups,
+  getGroupWithdrawals,
+};

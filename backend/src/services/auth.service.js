@@ -83,13 +83,15 @@ async function verifyOtp(mobile, otp) {
     data: { attempts: 0, lockedUntil: null },
   });
 
+  const isDemoAccount = Boolean(user.isDemoAccount || ['9000000001', '9000000002', '9000000003'].includes(user.mobile));
+  const role = user.isAdmin ? 'ADMIN' : 'USER';
   const token = jwt.sign(
-    { id: user.id, mobile: user.mobile, isAdmin: user.isAdmin },
+    { id: user.id, mobile: user.mobile, isAdmin: user.isAdmin, role, isDemoAccount },
     process.env.JWT_SECRET,
     { expiresIn: '24h' }
   );
 
-  return { success: true, token, user: { id: user.id, mobile: user.mobile, isAdmin: user.isAdmin } };
+  return { success: true, token, user: { id: user.id, mobile: user.mobile, isAdmin: user.isAdmin, role, isDemoAccount } };
 }
 
 module.exports = { requestOtp, verifyOtp };

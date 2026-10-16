@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 10000,
+  timeout: 15000,
 });
 
 api.interceptors.request.use((config) => {
@@ -39,9 +39,26 @@ export const walletApi = {
     api.get(`/wallet/transactions?page=${page}&limit=${limit}`),
 };
 
+export const groupApi = {
+  getMyGroups: () => api.get('/groups'),
+  getGroupWallet: (gid) => api.get(`/groups/${gid}/wallet`),
+  getGroupWithdrawals: (gid) => api.get(`/groups/${gid}/withdrawals`),
+  createWithdrawal: (gid, amount, note) => api.post(`/groups/${gid}/withdrawals`, { amount, note }),
+  approveWithdrawal: (gid, id) => api.post(`/groups/${gid}/withdrawals/${id}/approve`),
+  rejectWithdrawal: (gid, id) => api.post(`/groups/${gid}/withdrawals/${id}/reject`),
+};
+
+export const adminApi = {
+  bulkCredit: (formData) =>
+    api.post('/admin/credits/bulk', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+};
+
 export const userApi = {
   register: (data) => api.post('/users/register', data),
-  getMe: () => api.get('/users/me'),
+  getMe: () => api.get('/me'),
+  updateRoles: (data) => api.patch('/me/roles', data),
 };
 
 export default api;

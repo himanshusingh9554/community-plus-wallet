@@ -1,5 +1,6 @@
 const logger = require('./logger');
 const prisma = require('./prisma');
+const eventBus = require('./eventBus');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
@@ -43,6 +44,14 @@ function httpPost(urlStr, body) {
 }
 
 async function sendNotification(mobile, message, ledgerEntryId) {
+  // Push in-app notification immediately via event bus
+  eventBus.broadcastToMobile(mobile, 'notification', {
+    mobile,
+    message,
+    ledgerEntryId,
+    timestamp: new Date().toISOString(),
+  });
+
   const url = process.env.NOTIFY_URL;
   if (!url) return;
 

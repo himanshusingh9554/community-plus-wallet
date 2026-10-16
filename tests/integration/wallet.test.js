@@ -11,12 +11,20 @@ let memberUser;
 let receiverUser;
 
 beforeAll(async () => {
-  await prisma.ledgerEntry.deleteMany({});
-  await prisma.transfer.deleteMany({});
-  await prisma.idempotencyRecord.deleteMany({});
-  await prisma.otpRecord.deleteMany({});
-  await prisma.wallet.deleteMany({});
-  await prisma.user.deleteMany({ where: { mobile: { in: ['5000000001', '5000000002', '5000000003'] } } });
+  const testMobiles = ['5000000001', '5000000002', '5000000003'];
+  const existingUsers = await prisma.user.findMany({ where: { mobile: { in: testMobiles } } });
+  const userIds = existingUsers.map((u) => u.id);
+
+  if (userIds.length > 0) {
+    await prisma.ledgerEntry.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.transfer.deleteMany({
+      where: { OR: [{ senderId: { in: userIds } }, { receiverId: { in: userIds } }] },
+    });
+    await prisma.idempotencyRecord.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.otpRecord.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  }
 
   adminUser = await prisma.user.create({
     data: {

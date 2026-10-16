@@ -13,12 +13,25 @@ let outsiderToken;
 let testGroup;
 
 beforeAll(async () => {
-  await prisma.groupWithdrawal.deleteMany({});
-  await prisma.groupMember.deleteMany({});
-  await prisma.groupWallet.deleteMany({});
-  await prisma.group.deleteMany({ where: { name: 'Integration Test Group' } });
-  await prisma.ledgerEntry.deleteMany({});
-  await prisma.user.deleteMany({ where: { mobile: { in: ['8000000001', '8000000002', '8000000003'] } } });
+  const testMobiles = ['8000000001', '8000000002', '8000000003'];
+  const existingUsers = await prisma.user.findMany({ where: { mobile: { in: testMobiles } } });
+  const userIds = existingUsers.map((u) => u.id);
+
+  const existingGroups = await prisma.group.findMany({ where: { name: 'Integration Test Group' } });
+  const groupIds = existingGroups.map((g) => g.id);
+
+  if (groupIds.length > 0) {
+    await prisma.groupWithdrawal.deleteMany({ where: { groupId: { in: groupIds } } });
+    await prisma.groupMember.deleteMany({ where: { groupId: { in: groupIds } } });
+    await prisma.groupWallet.deleteMany({ where: { groupId: { in: groupIds } } });
+    await prisma.group.deleteMany({ where: { id: { in: groupIds } } });
+  }
+
+  if (userIds.length > 0) {
+    await prisma.ledgerEntry.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  }
 
   leaderUser = await prisma.user.create({
     data: {
@@ -71,13 +84,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.groupWithdrawal.deleteMany({});
-  await prisma.groupMember.deleteMany({});
-  await prisma.groupWallet.deleteMany({});
-  await prisma.group.deleteMany({ where: { id: testGroup?.id } });
-  await prisma.ledgerEntry.deleteMany({ where: { userId: { in: [leaderUser?.id, memberUser?.id, outsiderUser?.id] } } });
-  await prisma.wallet.deleteMany({ where: { userId: { in: [leaderUser?.id, memberUser?.id, outsiderUser?.id] } } });
-  await prisma.user.deleteMany({ where: { id: { in: [leaderUser?.id, memberUser?.id, outsiderUser?.id] } } });
+  if (testGroup?.id) {
+    await prisma.groupWithdrawal.deleteMany({ where: { groupId: testGroup.id } });
+    await prisma.groupMember.deleteMany({ where: { groupId: testGroup.id } });
+    await prisma.groupWallet.deleteMany({ where: { groupId: testGroup.id } });
+    await prisma.group.deleteMany({ where: { id: testGroup.id } });
+  }
+  const ids = [leaderUser?.id, memberUser?.id, outsiderUser?.id].filter(Boolean);
+  if (ids.length > 0) {
+    await prisma.ledgerEntry.deleteMany({ where: { userId: { in: ids } } });
+    await prisma.wallet.deleteMany({ where: { userId: { in: ids } } });
+    await prisma.user.deleteMany({ where: { id: { in: ids } } });
+  }
   await prisma.$disconnect();
 });
 
